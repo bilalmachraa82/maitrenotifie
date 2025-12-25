@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { AppState, Class, Student } from './types';
 import { loadClasses, saveClasses } from './utils/storage';
 import { extractHomeworkFromImage } from './services/geminiService';
+import { sendHomeworkEmail } from './services/emailService';
 
 // Components
 import Dashboard from './components/Dashboard';
@@ -76,20 +77,15 @@ const App: React.FC = () => {
   };
 
   const handleImportExcel = (importedClasses: Class[]) => {
-    // Fusionner les classes importées avec les existantes
     const updatedClasses = [...classes];
-    
     importedClasses.forEach(impClass => {
       const existingIdx = updatedClasses.findIndex(c => c.name.toLowerCase() === impClass.name.toLowerCase());
       if (existingIdx > -1) {
-        // Ajouter les élèves à la classe existante
         updatedClasses[existingIdx].students = [...updatedClasses[existingIdx].students, ...impClass.students];
       } else {
-        // Créer une nouvelle classe
         updatedClasses.push(impClass);
       }
     });
-
     setClasses(updatedClasses);
     saveClasses(updatedClasses);
     setShowImportModal(false);
@@ -99,7 +95,6 @@ const App: React.FC = () => {
   const handleImageCapture = async (file: File) => {
     setIsProcessing(true);
     setCurrentScreen(AppState.SCANNING);
-    
     const reader = new FileReader();
     reader.onloadend = async () => {
       const base64 = reader.result as string;
@@ -118,56 +113,76 @@ const App: React.FC = () => {
     reader.readAsDataURL(file);
   };
 
-  const handleSendNotifications = () => {
+  const handleSendNotifications = async () => {
+    if (!selectedClass || !extractedHomework) return;
+    
     setCurrentScreen(AppState.SENDING);
-    setTimeout(() => {
-      setCurrentScreen(AppState.DASHBOARD);
-      setExtractedHomework(null);
-      setCapturedImageBase64(null);
-      setSelectedClass(null);
+
+    const parentEmails = selectedClass.students
+      .map(s => s.parentEmail)
+      .filter(email => email && email.includes('@'));
+
+    if (parentEmails.length === 0) {
+      alert("Aucun email parent valide trouvé dans cette classe.");
+      setCurrentScreen(AppState.CLASS_DETAIL);
+      return;
+    }
+
+    const success = await sendHomeworkEmail({
+      to: parentEmails,
+      subject: `Devoirs de Musique : ${selectedClass.name}`,
+      className: selectedClass.name,
+      homeworkText: extractedHomework.text,
+      summary: extractedHomework.summary
+    });
+
+    if (success) {
       alert("Les devoirs ont été envoyés avec succès aux parents !");
-    }, 2500);
+    } else {
+      alert("Le message a été simulé. Configurez votre RESEND_API_KEY pour un envoi réel.");
+    }
+
+    setCurrentScreen(AppState.DASHBOARD);
+    setExtractedHomework(null);
+    setCapturedImageBase64(null);
+    setSelectedClass(null);
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col items-center selection:bg-indigo-100 font-sans">
-      {/* Header Institutionnel - École de Musique d'Élancourt */}
-      <header className="w-full bg-indigo-800 text-white shadow-2xl sticky top-0 z-50 overflow-hidden">
-        {/* Decorative pattern */}
-        <div className="absolute top-0 right-0 p-4 opacity-10 pointer-events-none rotate-12">
-            <svg className="w-32 h-32" viewBox="0 0 24 24" fill="currentColor">
+    <div className="min-h-screen selection:bg-gold/30">
+      {/* Premium Header */}
+      <header className="w-full h-24 sticky top-0 z-50 px-8 flex items-center justify-between glass border-b border-white/5">
+        <div 
+          className="flex items-center gap-4 cursor-pointer group" 
+          onClick={() => { setSelectedClass(null); setCurrentScreen(AppState.DASHBOARD); }}
+        >
+          <div className="bg-gold p-3 rounded-2xl shadow-[0_0_20px_rgba(212,175,55,0.3)] group-hover:scale-110 transition-transform">
+             <svg className="w-6 h-6 text-indigo-950" fill="currentColor" viewBox="0 0 24 24">
                 <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z" />
-            </svg>
+             </svg>
+          </div>
+          <div>
+            <h1 className="text-xl font-black playfair italic text-white tracking-widest leading-none">MaîtreNotifie</h1>
+            <span className="text-[8px] font-black uppercase tracking-[0.6em] text-gold opacity-80">Assistant João Ferreira</span>
+          </div>
         </div>
-        
-        <div className="max-w-4xl mx-auto px-4 py-4 flex justify-between items-center relative z-10">
-            <div 
-                className="flex items-center gap-3 cursor-pointer group" 
-                onClick={() => { setSelectedClass(null); setCurrentScreen(AppState.DASHBOARD); }}
-            >
-                <div className="bg-white text-indigo-800 p-2 rounded-xl shadow-lg group-hover:scale-110 transition-transform">
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
-                    </svg>
-                </div>
-                <div>
-                    <h1 className="text-xl font-black tracking-tight leading-none uppercase italic">MaîtreNotifie</h1>
-                    <div className="flex flex-col mt-0.5">
-                        <span className="text-[10px] font-bold uppercase tracking-widest text-indigo-200">École de Musique d'Élancourt</span>
-                        <span className="text-[9px] font-medium opacity-70 italic">Assistant : João Ferreira</span>
-                    </div>
-                </div>
+
+        <div className="flex items-center gap-6">
+            <div className="hidden md:flex flex-col items-end">
+                <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Status du Réseau</span>
+                <span className="text-[10px] text-emerald-400 font-bold flex items-center gap-2">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                    OPÉRATIONNEL
+                </span>
             </div>
-            {selectedClass && (
-                <div className="hidden sm:block bg-indigo-700 px-4 py-1.5 rounded-2xl text-xs font-bold border border-indigo-600 shadow-inner">
-                    {selectedClass.name}
-                </div>
-            )}
+            <div className="h-12 w-px bg-white/5"></div>
+            <div className="h-10 w-10 rounded-full bg-slate-800 border border-white/10 flex items-center justify-center text-xs font-black text-gold">
+                JF
+            </div>
         </div>
       </header>
 
-      {/* Main Content */}
-      <main className="w-full max-w-2xl p-4 flex-1">
+      <main className="w-full max-w-6xl mx-auto p-8 py-12">
         {currentScreen === AppState.DASHBOARD && (
           <Dashboard 
             classes={classes} 
@@ -179,50 +194,54 @@ const App: React.FC = () => {
         )}
 
         {currentScreen === AppState.CLASS_DETAIL && selectedClass && (
-          <ClassManager 
-            classData={selectedClass} 
-            onAddStudent={(s) => handleAddStudent(selectedClass.id, s)}
-            onDeleteStudent={(sId) => handleDeleteStudent(selectedClass.id, sId)}
-            onStartScan={() => setCurrentScreen(AppState.SCANNING)}
-            onBack={() => { setSelectedClass(null); setCurrentScreen(AppState.DASHBOARD); }}
-          />
+          <div className="max-w-4xl mx-auto">
+              <ClassManager 
+                classData={selectedClass} 
+                onAddStudent={(s) => handleAddStudent(selectedClass.id, s)}
+                onDeleteStudent={(sId) => handleDeleteStudent(selectedClass.id, sId)}
+                onStartScan={() => setCurrentScreen(AppState.SCANNING)}
+                onBack={() => { setSelectedClass(null); setCurrentScreen(AppState.DASHBOARD); }}
+              />
+          </div>
         )}
 
         {currentScreen === AppState.SCANNING && (
-          <HomeworkScanner 
-            isProcessing={isProcessing}
-            onCapture={handleImageCapture}
-            onCancel={() => setCurrentScreen(AppState.CLASS_DETAIL)}
-          />
+          <div className="max-w-3xl mx-auto">
+              <HomeworkScanner 
+                isProcessing={isProcessing}
+                onCapture={handleImageCapture}
+                onCancel={() => setCurrentScreen(AppState.CLASS_DETAIL)}
+              />
+          </div>
         )}
 
         {currentScreen === AppState.VALIDATING && extractedHomework && (
-          <ValidationScreen 
-            text={extractedHomework.text}
-            summary={extractedHomework.summary}
-            imageUrl={capturedImageBase64}
-            onUpdate={(newText) => setExtractedHomework(prev => prev ? { ...prev, text: newText } : null)}
-            onConfirm={handleSendNotifications}
-            onCancel={() => { setCapturedImageBase64(null); setCurrentScreen(AppState.CLASS_DETAIL); }}
-          />
+          <div className="max-w-3xl mx-auto">
+              <ValidationScreen 
+                text={extractedHomework.text}
+                summary={extractedHomework.summary}
+                imageUrl={capturedImageBase64}
+                onUpdate={(newText) => setExtractedHomework(prev => prev ? { ...prev, text: newText } : null)}
+                onConfirm={handleSendNotifications}
+                onCancel={() => { setCapturedImageBase64(null); setCurrentScreen(AppState.CLASS_DETAIL); }}
+              />
+          </div>
         )}
 
         {currentScreen === AppState.SENDING && (
-          <div className="flex flex-col items-center justify-center py-24 text-center">
-            <div className="relative mb-8">
-                <div className="animate-spin rounded-full h-24 w-24 border-t-4 border-indigo-600 border-opacity-20 border-t-opacity-100"></div>
-                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-3xl">🎼</div>
+          <div className="flex flex-col items-center justify-center py-24 text-center bento-card rounded-[4rem] p-12 max-w-2xl mx-auto">
+            <div className="relative mb-12">
+                <div className="animate-spin rounded-full h-32 w-32 border-t-2 border-gold"></div>
+                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-4xl">🎼</div>
             </div>
-            <h2 className="text-2xl font-black text-gray-800 uppercase tracking-tight">Transmission en cours</h2>
-            <p className="text-gray-500 mt-2 max-w-xs mx-auto">
-                Notification envoyée aux parents d'Élancourt pour la classe : <br/>
-                <span className="font-bold text-indigo-600">{selectedClass?.name}</span>
+            <h2 className="text-4xl font-black text-white playfair italic mb-3">Diffusion Maestria</h2>
+            <p className="text-slate-500 text-[10px] uppercase tracking-[0.4em] font-bold">
+                Les parents de la classe <span className="text-gold">{selectedClass?.name}</span> <br/> reçoivent les consignes...
             </p>
           </div>
         )}
       </main>
 
-      {/* Modale d'importation */}
       {showImportModal && (
         <ExcelImporter 
           onImport={handleImportExcel} 
@@ -230,21 +249,18 @@ const App: React.FC = () => {
         />
       )}
 
-      {/* Footer Institutionnel */}
-      <footer className="w-full text-center p-10 text-gray-400 text-xs border-t border-gray-100 bg-white bg-opacity-50 backdrop-blur-sm mt-8">
-        <div className="max-w-sm mx-auto space-y-2">
-            <p className="font-black text-gray-500 uppercase tracking-widest text-[10px]">École de Musique d'Élancourt</p>
-            <p className="leading-relaxed opacity-70">
-                Plateforme de communication pédagogique <br/>
-                Développement & Support : <strong>Assistant João Ferreira</strong>
-            </p>
-            <div className="flex justify-center gap-4 pt-4 opacity-30 grayscale scale-75">
-                <span className="text-xl">♩</span>
-                <span className="text-xl">♪</span>
-                <span className="text-xl">♫</span>
-                <span className="text-xl">♬</span>
+      <footer className="w-full text-center p-20 mt-12 glass border-t border-white/5">
+        <div className="max-w-md mx-auto space-y-6">
+            <div className="flex justify-center gap-12 opacity-10">
+                <span className="text-4xl text-gold">♩</span>
+                <span className="text-4xl text-gold">♪</span>
+                <span className="text-4xl text-gold">♫</span>
             </div>
-            <p className="pt-4 text-[9px] font-medium">&copy; {new Date().getFullYear()} - MaîtreNotifie v2.0</p>
+            <p className="font-black text-slate-700 uppercase tracking-[0.8em] text-[9px]">Conservatoire National d'Élancourt</p>
+            <p className="playfair italic text-slate-500 text-sm">
+              "La musique est la langue des émotions."
+            </p>
+            <p className="pt-8 text-[7px] font-black uppercase tracking-[0.5em] text-slate-800">Designed for João Ferreira &bull; Powered by Gemini 3</p>
         </div>
       </footer>
     </div>

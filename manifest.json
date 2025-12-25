@@ -1,0 +1,18 @@
+
+{
+  "name": "MaîtreNotifie Élancourt",
+  "short_name": "MaîtreNotifie",
+  "description": "Assistant IA pour João Ferreira - Conservatoire de Musique",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#020617",
+  "theme_color": "#D4AF37",
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/3844/3844720.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
