@@ -1,0 +1,7 @@
+{
+  "name": "MaîtreNotifie - École de Musique d'Élancourt",
+  "description": "Outil d'IA pour la gestion des devoirs de musique - Assistant João Ferreira.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
